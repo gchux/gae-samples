@@ -263,8 +263,10 @@ public class DeleteIndexes extends HttpServlet {
           startID = documents.get(sizeOfDocuments-1).getId();
         } else if (sizeOfDocuments == 0) { // page is empty
           // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
-          // this.index.deleteSchema(); // complete index deletion by deleting schema
+          this.index.deleteSchema(); // complete index deletion by deleting schema
           break; // no more indexed documents
+        } else {
+          startID = null;
         }
         
         try {
