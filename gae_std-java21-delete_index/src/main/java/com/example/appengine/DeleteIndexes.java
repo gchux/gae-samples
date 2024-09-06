@@ -231,7 +231,7 @@ public class DeleteIndexes extends HttpServlet {
       long sizeOfAllDocuments = 0l;
       int retries =  0;
 
-      String nextStartID = null;
+      String startID = null;
       while (true) {
 
         try {
@@ -248,15 +248,15 @@ public class DeleteIndexes extends HttpServlet {
         // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index
         // get netxt batch of document IDs to be deleted
         final GetRequest.Builder getDocumentsRequestBuilder = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true);
-        if ( iteration > 0l && nextStartID != null && !nextStartID.isEmpty() ) {
-          getDocumentsRequestBuilder.setStartId(nextStartID).setIncludeStart(false);
+        if ( iteration > 0l && startID != null && !startID.isEmpty() ) {
+          getDocumentsRequestBuilder.setStartId(startID).setIncludeStart(false);
         }
 
         final GetResponse<Document> getDocumentsResponse = this.index.getRange(getDocumentsRequestBuilder.build());
         final List<Document> documents = Collections.unmodifiableList(getDocumentsResponse.getResults());
         
         final int sizeOfDocuments = documents.size();
-        nextStartID = documents.get(sizeOfDocuments-1).getId();
+        startID = documents.get(sizeOfDocuments-1).getId();
         
         if (documents.size() == 0) {
           // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
