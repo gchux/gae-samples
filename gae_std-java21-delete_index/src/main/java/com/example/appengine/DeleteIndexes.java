@@ -16,11 +16,13 @@
 
 package com.example.appengine;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
 
 import java.io.IOException;
 import jakarta.servlet.http.HttpServlet;
@@ -50,7 +52,11 @@ import static java.time.Duration.ofSeconds;
 public class DeleteIndexes extends HttpServlet {
 
   private static final ListeningExecutorService SERVICE = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(100));
-  private static final AtomicLong COUNTER = new AtomicLong(0l);
+  private static final AtomicLong PROCESSED_DOCUMENTS = new AtomicLong(0l);
+  private static final AtomicLong DELETED_DOCUMENTS = new AtomicLong(0l);
+
+  private static final int MAX_RETRIES = 3;
+  private static final long QPS = 300;
 
   @Override
   public void doGet(
@@ -63,7 +69,7 @@ public class DeleteIndexes extends HttpServlet {
     try {
 
       final Bucket bucket = Bucket.builder().withNanosecondPrecision()
-        .addLimit(limit -> limit.capacity(300).refillIntervally(300, ofSeconds(1)))
+        .addLimit(limit -> limit.capacity(QPS).refillIntervally(QPS, ofSeconds(1)))
         .build();
 
       final SearchService search = SearchServiceFactory.getSearchService();
@@ -74,33 +80,15 @@ public class DeleteIndexes extends HttpServlet {
 
       final WaitGroup wg = new WaitGroup();
       for (final Index index : getIndexesResponse) {
-        bucket.asBlocking().consume(1);
-
-        final String indexNamespace = index.getNamespace();
-        final String indexName = index.getName();
-        final GetRequest getDocumentsRequest = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true).build();
-        
-        while (true) {
-          // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index
-          final GetResponse<Document> getDocumentsResponse = index.getRange(getDocumentsRequest);
-          final List<Document> documents = getDocumentsResponse.getResults();
-          
-          if (documents.size() == 0) {
-            // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
-            index.deleteSchema();
-            break; // no more documents
-          }
-          
-          wg.add();
-          final ListenableFuture<Long> deletedDocuments = SERVICE.submit(new DeleteIndexedDocuments(index, bucket, documents));
-          Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(wg, indexNamespace, indexName), SERVICE);
-        }
-      
+        wg.add();
+        System.out.println("Deleting index: " + index.getNamespace() + "::" + index.getNamespace());
+        final DeleteIndex task = new DeleteIndex(wg, index, bucket);
+        final ListenableFuture<Long> deletedIndex = SERVICE.submit(task);
+        Futures.addCallback(deletedIndex, new OnIndexDeleted(wg, task), SERVICE);
       }
       wg.wait();
 
       response.getWriter().println("OK: " + Long.toString(10l, 10));
-    
     } catch(Exception e) {
       e.printStackTrace(System.err);
       response.getWriter().println("KO");
@@ -129,25 +117,23 @@ public class DeleteIndexes extends HttpServlet {
 
   }
 
-  private static class OnIndexedDocumentsDeleted implements FutureCallback<Long> {
+  private static class OnIndexDeleted implements FutureCallback<Long> {
 
     private final WaitGroup wg;
-    private final String namespace;
-    private final String name;
+    private final Index index;
 
-    OnIndexedDocumentsDeleted(
+    OnIndexDeleted(
       final WaitGroup wg,
-      final String namespace,
-      final String name
+      final DeleteIndex task
     ) {
       this.wg = wg;
-      this.namespace = namespace;
-      this.name = name;
+      this.index = task.getIndex();
     }
 
-    public void onSuccess(Long deletedDocuments) {
-      final long overallDeleterDocuments = COUNTER.addAndGet(deletedDocuments.longValue());
-      System.out.println("Deleted Documents from index '" + this.namespace + "::" + this.name + "': " + Long.toString(overallDeleterDocuments, 10));
+    public void onSuccess(Long processedDocuments) {
+      final long overallProcessedDocuments = PROCESSED_DOCUMENTS.addAndGet(processedDocuments.longValue());
+      System.out.println("processed documents from index '" + this.index.getNamespace() + "::" + this.index.getName() + 
+        "' => " + Long.toString(processedDocuments.longValue(), 10) + " | overall processed documents: " + Long.toString(overallProcessedDocuments, 10)); 
       this.wg.done();
     }
 
@@ -158,33 +144,156 @@ public class DeleteIndexes extends HttpServlet {
 
   }
 
+  private static class OnIndexedDocumentsDeleted implements FutureCallback<Long> {
+
+    private final WaitGroup wg;
+    private final long iteration;
+    private final Index index;
+
+    OnIndexedDocumentsDeleted(
+      final WaitGroup wg,
+      final DeleteIndexedDocuments task
+    ) {
+      this.wg = wg;
+      this.iteration = task.getIteration();
+      this.index = task.getIndex();
+    }
+
+    public void onSuccess(Long deletedDocuments) {
+      final long overallDeleterDocuments = DELETED_DOCUMENTS.addAndGet(deletedDocuments.longValue());
+      System.out.println("processed documents from index '" + this.index.getNamespace() + "::" + this.index.getName() + "'" + 
+        "@iteration:" + Long.toString(this.iteration, 10) + " => " + Long.toString(deletedDocuments.longValue(), 10) + 
+        "| overall deleted documents: " + Long.toString(overallDeleterDocuments, 10));
+      this.wg.done();
+    }
+
+    public void onFailure(Throwable thrown) {
+      thrown.printStackTrace(System.err);
+      this.wg.done();
+    }
+
+  }
+
+  private static class DeleteIndex implements Callable<Long> {
+
+    private final WaitGroup wg;
+    private final Index index;
+    private final Bucket bucket;
+    private final String error;
+
+    DeleteIndex(
+      final WaitGroup wg,
+      final Index index,
+      final Bucket bucket
+    ) {
+      this.wg = wg;
+      this.index = index;
+      this.bucket = bucket;
+      this.error = "[" + this.index.getNamespace() + "::" + this.index.getName() + "]/iteration:";
+    }
+
+    Index getIndex() {
+      return this.index;
+    }
+
+    public Long call() throws Exception {
+
+      final String indexNamespace = this.index.getNamespace();
+      final String indexName = this.index.getName();
+      final GetRequest getDocumentsRequest = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true).build();
+      
+      long iteration = 0l;
+      long sizeOfDocuments = 0l;
+      int retries =  0;
+
+      while (true) {
+        try {
+          this.bucket.asBlocking().consume(1);
+        } catch(Exception e) {
+          retries += 1;
+          if (retries >= MAX_RETRIES) {
+            throw new ExecutionException("index.getRange" + this.error + Long.toString(iteration, 10) + " => MAX_RETRIES", e);
+          }
+          continue;
+        }
+        
+        // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index
+        final GetResponse<Document> getDocumentsResponse = this.index.getRange(getDocumentsRequest);
+        final List<Document> documents = Collections.unmodifiableList(getDocumentsResponse.getResults());
+        
+        if (documents.size() == 0) {
+          // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
+          this.index.deleteSchema();
+          break; // no more documents
+        }
+        
+        this.wg.add();
+        try {
+          final DeleteIndexedDocuments task = new DeleteIndexedDocuments(iteration, this.index, bucket, documents);
+          final ListenableFuture<Long> deletedDocuments = SERVICE.submit(task);
+          Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), SERVICE);
+        } catch(Exception e) {
+          System.err.println(this.error + Long.toString(iteration, 10) + " => " + e.getMessage());
+        } 
+
+        iteration += 1l;
+        sizeOfDocuments += documents.size();
+      }
+
+      return Long.valueOf(sizeOfDocuments);
+    }
+
+  }
+
   private static class DeleteIndexedDocuments implements Function<Document, String>, Callable<Long> {
 
+    private long iteration;
     private final Index index;
     private final Bucket bucket;
     private final List<Document> documents;
+    private final String error;
 
     DeleteIndexedDocuments(
+      final long iteration,
       final Index index,
       final Bucket bucket,
       final List<Document> documents
     ) {
+      this.iteration = iteration;
       this.index = index;
       this.bucket = bucket;
       this.documents = documents;
+      this.error = "index.delete[" + index.getNamespace() + "::" + index.getName() + "] | iteration:" + Long.toString(iteration, 10) + " | documents:" + Integer.toString(documents.size());
     }
 
-    public Long call() {
+    long getIteration() {
+      return this.iteration;
+    }
+
+    Index getIndex() {
+      return this.index;
+    }
+
+    List<Document> getDocuments() {
+      return this.documents;
+    }
+
+    public Long call() throws Exception {
       try {
         this.bucket.asBlocking().consume(1);
-        final List<String> documentsIDs = Lists.transform(this.documents, this);
+      } catch(Exception e) {
+        throw new ExecutionException(error + " | failed to acquire token", e);
+      }
+
+      final List<String> documentsIDs = Lists.transform(this.documents, this);
+      try {
         // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_delete_java_lang_Iterable_java_lang_String__
         this.index.delete(documentsIDs);
-        return Long.valueOf(documentsIDs.size());
       } catch(Exception e) {
-        e.printStackTrace(System.err);
+        throw new ExecutionException(error + " | failed to delete", e);
       }
-      return Long.valueOf(0l);
+      
+      return Long.valueOf(documentsIDs.size());
     }
 
     public String apply(Document document) {
