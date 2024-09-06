@@ -58,7 +58,7 @@ public class DeleteIndexes extends HttpServlet {
   private static final AtomicLong DELETED_DOCUMENTS = new AtomicLong(0l);
 
   private static final int MAX_RETRIES = 5;
-  private static final Long QPS = 300l;
+  private static final Long QPS = 10l;
 
   private static final String QPS_QUERY_PARAM = "qps";
 
