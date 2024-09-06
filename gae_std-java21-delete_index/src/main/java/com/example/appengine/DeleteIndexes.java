@@ -103,7 +103,7 @@ public class DeleteIndexes extends HttpServlet {
         final ListenableFuture<Long> deletedIndex = SERVICE.submit(task);
         Futures.addCallback(deletedIndex, new OnIndexDeleted(wg, task), SERVICE);
       }
-      wg.wait();
+      wg.await();
 
       final String outcome = Integer.toString(indexes, 10) + " | " + Long.toString(PROCESSED_DOCUMENTS.get(), 10) + " | " + Long.toString(DELETED_DOCUMENTS.get(), 10);
 
