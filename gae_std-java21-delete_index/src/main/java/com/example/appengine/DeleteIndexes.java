@@ -98,10 +98,10 @@ public class DeleteIndexes extends HttpServlet {
       final WaitGroup wg = new WaitGroup();
       int indexes = 0;
       for (final Index index : getIndexesResponse) {
-        wg.add();
         indexes += 1;
         System.out.println("Deleting index: " + index.getNamespace() + "::" + index.getName());
         final DeleteIndex task = new DeleteIndex(SERVICE, wg, index, bucket);
+        wg.add();
         final ListenableFuture<Long> deletedIndex = SERVICE.submit(task);
         Futures.addCallback(deletedIndex, new OnIndexDeleted(wg, task), SERVICE);
       }
