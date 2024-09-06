@@ -101,7 +101,7 @@ public class DeleteIndexes extends HttpServlet {
         wg.add();
         indexes += 1;
         System.out.println("Deleting index: " + index.getNamespace() + "::" + index.getName());
-        final DeleteIndex task = new DeleteIndex(wg, index, bucket);
+        final DeleteIndex task = new DeleteIndex(SERVICE, wg, index, bucket);
         final ListenableFuture<Long> deletedIndex = SERVICE.submit(task);
         Futures.addCallback(deletedIndex, new OnIndexDeleted(wg, task), SERVICE);
       }
@@ -199,16 +199,19 @@ public class DeleteIndexes extends HttpServlet {
 
   private static class DeleteIndex implements Callable<Long> {
 
+    private final ListeningExecutorService service;
     private final WaitGroup wg;
     private final Index index;
     private final Bucket bucket;
     private final String error;
 
     DeleteIndex(
+      final ListeningExecutorService SERVICE,
       final WaitGroup wg,
       final Index index,
       final Bucket bucket
     ) {
+      this.service = SERVICE;
       this.wg = wg;
       this.index = index;
       this.bucket = bucket;
@@ -223,13 +226,14 @@ public class DeleteIndexes extends HttpServlet {
 
       final String indexNamespace = this.index.getNamespace();
       final String indexName = this.index.getName();
-      final GetRequest getDocumentsRequest = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true).build();
       
       long iteration = 0l;
-      long sizeOfDocuments = 0l;
+      long sizeOfAllDocuments = 0l;
       int retries =  0;
 
+      String nextStartID = null;
       while (true) {
+
         try {
           this.bucket.asBlocking().consume(1);
         } catch(Exception e) {
@@ -243,8 +247,16 @@ public class DeleteIndexes extends HttpServlet {
         
         // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index
         // get netxt batch of document IDs to be deleted
-        final GetResponse<Document> getDocumentsResponse = this.index.getRange(getDocumentsRequest);
+        final GetRequest.Builder getDocumentsRequestBuilder = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true);
+        if ( iteration > 0l && nextStartID != null && !nextStartID.isEmpty() ) {
+          getDocumentsRequestBuilder.setStartId(nextStartID).setIncludeStart(false);
+        }
+
+        final GetResponse<Document> getDocumentsResponse = this.index.getRange(getDocumentsRequestBuilder.build());
         final List<Document> documents = Collections.unmodifiableList(getDocumentsResponse.getResults());
+        
+        final int sizeOfDocuments = documents.size();
+        nextStartID = documents.get(sizeOfDocuments-1).getId();
         
         if (documents.size() == 0) {
           // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
@@ -254,19 +266,20 @@ public class DeleteIndexes extends HttpServlet {
         
         try {
           final DeleteIndexedDocuments task = new DeleteIndexedDocuments(iteration, this.index, bucket, documents);
-          task.call();
-          // final ListenableFuture<Long> deletedDocuments = SERVICE.submit(task);
-          // Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), SERVICE);
+          this.wg.add();
+          final ListenableFuture<Long> deletedDocuments = this.service.submit(task);
+          Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), this.service);
         } catch(Exception e) {
           e.printStackTrace(System.err);
           System.err.println(this.error + Long.toString(iteration, 10) + " => " + e.getMessage());
+          this.wg.done();
         } 
 
         iteration += 1l;
-        sizeOfDocuments += documents.size();
+        sizeOfAllDocuments += sizeOfDocuments;
       }
 
-      return Long.valueOf(sizeOfDocuments);
+      return Long.valueOf(sizeOfAllDocuments);
     }
 
   }
