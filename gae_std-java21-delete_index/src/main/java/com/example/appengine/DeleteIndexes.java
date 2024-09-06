@@ -74,6 +74,7 @@ public class DeleteIndexes extends HttpServlet {
       final ListeningExecutorService SERVICE = MoreExecutors.listeningDecorator(
         Executors.newFixedThreadPool(100, ThreadManager.currentRequestThreadFactory()));
 
+      // control `QPS` to avoid: https://cloud.google.com/appengine/docs/standard/quotas#When_a_Resource_is_Depleted
       Long qps = QPS;
       // allow to regulate QPS against Datastore API
       final String qpsQueryParam = request.getParameter(QPS_QUERY_PARAM);
@@ -86,6 +87,7 @@ public class DeleteIndexes extends HttpServlet {
       }
 
       final long API_QPS = qps.longValue();
+      // no matter how many threads are available in the pool, no more than `QPS` should ever get to perform an API operation.
       final Bucket bucket = Bucket.builder().withNanosecondPrecision()
         .addLimit(limit -> limit.capacity(API_QPS).refillIntervally(API_QPS, ofSeconds(1)))
         .build();
