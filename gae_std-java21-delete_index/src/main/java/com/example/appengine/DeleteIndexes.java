@@ -249,6 +249,7 @@ public class DeleteIndexes extends HttpServlet {
         // get netxt batch of document IDs to be deleted
         final GetRequest.Builder getDocumentsRequestBuilder = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true);
         if ( iteration > 0l && startID != null && !startID.isEmpty() ) {
+          // in order to make this loop concurrent: `getRange` operations must start and next document id
           getDocumentsRequestBuilder.setStartId(startID).setIncludeStart(false);
         }
 
@@ -256,11 +257,12 @@ public class DeleteIndexes extends HttpServlet {
         final List<Document> documents = Collections.unmodifiableList(getDocumentsResponse.getResults());
         
         final int sizeOfDocuments = documents.size();
-        startID = documents.get(sizeOfDocuments-1).getId();
-        
-        if (documents.size() == 0) {
+
+        if (sizeOfDocuments == 100) { // page is full
+          startID = documents.get(sizeOfDocuments-1).getId();
+        } else if (sizeOfDocuments == 0) { // page is empty
           // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
-          this.index.deleteSchema(); // complete index deletion by deleting schema
+          // this.index.deleteSchema(); // complete index deletion by deleting schema
           break; // no more indexed documents
         }
         
