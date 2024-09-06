@@ -247,6 +247,7 @@ public class DeleteIndexes extends HttpServlet {
           }
           continue;
         }
+        retries = 0;
         
         // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index
         // get netxt batch of document IDs to be deleted
