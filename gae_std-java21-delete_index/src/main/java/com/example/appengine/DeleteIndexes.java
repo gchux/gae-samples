@@ -253,8 +253,9 @@ public class DeleteIndexes extends HttpServlet {
         this.wg.add();
         try {
           final DeleteIndexedDocuments task = new DeleteIndexedDocuments(iteration, this.index, bucket, documents);
-          final ListenableFuture<Long> deletedDocuments = SERVICE.submit(task);
-          Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), SERVICE);
+          task.call();
+          // final ListenableFuture<Long> deletedDocuments = SERVICE.submit(task);
+          // Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), SERVICE);
         } catch(Exception e) {
           System.err.println(this.error + Long.toString(iteration, 10) + " => " + e.getMessage());
           this.wg.done();
