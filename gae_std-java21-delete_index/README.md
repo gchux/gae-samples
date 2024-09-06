@@ -17,7 +17,7 @@ https://cloud.google.com/sdk/docs/install
 ## Delete ALL indexes
 
 ```sh
-curl -ivL -XGET https://<gae-service>-dot-<gcp-project>.appspot.com/deleteIndexes
+curl -ivL -XGET https://<gae-service>-dot-<gcp-project>.appspot.com/deleteIndexes?qps=300
 ```
 
 > see [handler implementation](src/main/java/com/example/appengine/DeleteIndexes.java)
