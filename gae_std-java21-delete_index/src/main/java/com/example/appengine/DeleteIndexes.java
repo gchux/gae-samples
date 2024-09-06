@@ -57,6 +57,7 @@ public class DeleteIndexes extends HttpServlet {
   private static final AtomicLong PROCESSED_DOCUMENTS = new AtomicLong(0l);
   private static final AtomicLong DELETED_DOCUMENTS = new AtomicLong(0l);
 
+  private static final int PAGE_SIZE = 100;
   private static final int MAX_RETRIES = 5;
   private static final Long QPS = 10l;
 
@@ -251,7 +252,7 @@ public class DeleteIndexes extends HttpServlet {
         
         // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index
         // get netxt batch of document IDs to be deleted
-        final GetRequest.Builder getDocumentsRequestBuilder = GetRequest.newBuilder().setLimit(100).setReturningIdsOnly(true);
+        final GetRequest.Builder getDocumentsRequestBuilder = GetRequest.newBuilder().setLimit(PAGE_SIZE).setReturningIdsOnly(true);
         if ( iteration > 0l && startID != null && !startID.isEmpty() ) {
           // in order to make this loop concurrent: `getRange` operations must start and next document id
           getDocumentsRequestBuilder.setStartId(startID).setIncludeStart(false);
@@ -262,7 +263,7 @@ public class DeleteIndexes extends HttpServlet {
         
         final int sizeOfDocuments = documents.size();
 
-        if (sizeOfDocuments == 100) { // page is full
+        if (sizeOfDocuments == PAGE_SIZE) { // page is full
           startID = documents.get(sizeOfDocuments-1).getId();
         } else if (sizeOfDocuments == 0) { // page is empty
           // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
