@@ -100,7 +100,7 @@ public class DeleteIndexes extends HttpServlet {
       for (final Index index : getIndexesResponse) {
         wg.add();
         indexes += 1;
-        System.out.println("Deleting index: " + index.getNamespace() + "::" + index.getNamespace());
+        System.out.println("Deleting index: " + index.getNamespace() + "::" + index.getName());
         final DeleteIndex task = new DeleteIndex(wg, index, bucket);
         final ListenableFuture<Long> deletedIndex = SERVICE.submit(task);
         Futures.addCallback(deletedIndex, new OnIndexDeleted(wg, task), SERVICE);
@@ -256,9 +256,11 @@ public class DeleteIndexes extends HttpServlet {
         try {
           final DeleteIndexedDocuments task = new DeleteIndexedDocuments(iteration, this.index, bucket, documents);
           task.call();
+          this.wg.done();
           // final ListenableFuture<Long> deletedDocuments = SERVICE.submit(task);
           // Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), SERVICE);
         } catch(Exception e) {
+          e.printStackTrace(System.err);
           System.err.println(this.error + Long.toString(iteration, 10) + " => " + e.getMessage());
           this.wg.done();
         } 
@@ -317,6 +319,7 @@ public class DeleteIndexes extends HttpServlet {
         // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_delete_java_lang_Iterable_java_lang_String__
         this.index.delete(documentsIDs);
       } catch(Exception e) {
+        e.printStackTrace(System.err);
         throw new ExecutionException(error + " | failed to delete", e);
       }
       
