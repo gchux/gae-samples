@@ -38,6 +38,7 @@ import com.google.appengine.api.search.Index;
 import com.google.appengine.api.search.Document;
 
 import com.google.common.base.Function;
+import com.google.common.primitives.Longs;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -56,7 +57,9 @@ public class DeleteIndexes extends HttpServlet {
   private static final AtomicLong DELETED_DOCUMENTS = new AtomicLong(0l);
 
   private static final int MAX_RETRIES = 3;
-  private static final long QPS = 300;
+  private static final Long QPS = 300l;
+
+  private static final String QPS_QUERY_PARAM = "qps";
 
   @Override
   public void doGet(
@@ -68,8 +71,20 @@ public class DeleteIndexes extends HttpServlet {
     
     try {
 
+      Long qps = QPS;
+      // allow to regulate QPS against Datastore API
+      String qpsQueryParam = request.getParameter(QPS_QUERY_PARAM);
+      if ( qpsQueryParam == null || qpsQueryParam.isEmpty() ) {
+        qps = Longs.tryParse(qpsQueryParam, 10);
+        // if no query string parameter `qps` is available, defaults to `QPS`
+        if ( qps == null ) {
+          qps = QPS;
+        }
+      }
+
+      final long API_QPS = qps.longValue();
       final Bucket bucket = Bucket.builder().withNanosecondPrecision()
-        .addLimit(limit -> limit.capacity(QPS).refillIntervally(QPS, ofSeconds(1)))
+        .addLimit(limit -> limit.capacity(API_QPS).refillIntervally(API_QPS, ofSeconds(1)))
         .build();
 
       final SearchService search = SearchServiceFactory.getSearchService();
@@ -229,7 +244,7 @@ public class DeleteIndexes extends HttpServlet {
         
         if (documents.size() == 0) {
           // see: https://cloud.google.com/appengine/docs/standard/java-gen2/reference/services/bundled/latest/com.google.appengine.api.search.Index#com_google_appengine_api_search_Index_deleteSchema__
-          this.index.deleteSchema();
+          this.index.deleteSchema(); // complete index deletion by deleting schema
           break; // no more documents
         }
         
