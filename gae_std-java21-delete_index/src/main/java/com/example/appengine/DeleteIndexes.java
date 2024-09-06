@@ -233,6 +233,7 @@ public class DeleteIndexes extends HttpServlet {
         } catch(Exception e) {
           retries += 1;
           if (retries >= MAX_RETRIES) {
+            this.wg.done();
             throw new ExecutionException("index.getRange" + this.error + Long.toString(iteration, 10) + " => MAX_RETRIES", e);
           }
           continue;
@@ -256,6 +257,7 @@ public class DeleteIndexes extends HttpServlet {
           Futures.addCallback(deletedDocuments, new OnIndexedDocumentsDeleted(this.wg, task), SERVICE);
         } catch(Exception e) {
           System.err.println(this.error + Long.toString(iteration, 10) + " => " + e.getMessage());
+          this.wg.done();
         } 
 
         iteration += 1l;
