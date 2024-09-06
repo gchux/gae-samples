@@ -71,7 +71,8 @@ public class DeleteIndexes extends HttpServlet {
     response.setContentType("text/plain");
     
     try {
-      final ListeningExecutorService SERVICE = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(100, ThreadManager.currentRequestThreadFactory()));
+      final ListeningExecutorService SERVICE = MoreExecutors.listeningDecorator(
+        Executors.newFixedThreadPool(100, ThreadManager.currentRequestThreadFactory()));
 
       Long qps = QPS;
       // allow to regulate QPS against Datastore API
