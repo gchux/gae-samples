@@ -37,6 +37,8 @@ import com.google.appengine.api.search.GetResponse;
 import com.google.appengine.api.search.Index;
 import com.google.appengine.api.search.Document;
 
+import com.google.appengine.api.ThreadManager;
+
 import com.google.common.base.Function;
 import com.google.common.primitives.Longs;
 import com.google.common.collect.Lists;
@@ -52,7 +54,6 @@ import static java.time.Duration.ofSeconds;
 
 public class DeleteIndexes extends HttpServlet {
 
-  private static final ListeningExecutorService SERVICE = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(100));
   private static final AtomicLong PROCESSED_DOCUMENTS = new AtomicLong(0l);
   private static final AtomicLong DELETED_DOCUMENTS = new AtomicLong(0l);
 
@@ -70,6 +71,7 @@ public class DeleteIndexes extends HttpServlet {
     response.setContentType("text/plain");
     
     try {
+      final ListeningExecutorService SERVICE = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(100, ThreadManager.currentRequestThreadFactory()));
 
       Long qps = QPS;
       // allow to regulate QPS against Datastore API
