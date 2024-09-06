@@ -70,7 +70,7 @@ limitations under the License.
         <version>2.8.1</version>
         <configuration>
           <projectId>GCLOUD_CONFIG</projectId>
-          <version>delete_indexes</version>
+          <version>delete-indexes</version>
         </configuration>
       </plugin>
     </plugins>
