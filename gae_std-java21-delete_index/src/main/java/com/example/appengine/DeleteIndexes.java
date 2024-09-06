@@ -77,7 +77,7 @@ public class DeleteIndexes extends HttpServlet {
       Long qps = QPS;
       // allow to regulate QPS against Datastore API
       String qpsQueryParam = request.getParameter(QPS_QUERY_PARAM);
-      if ( qpsQueryParam == null || qpsQueryParam.isEmpty() ) {
+      if ( qpsQueryParam != null && !qpsQueryParam.isEmpty() ) {
         qps = Longs.tryParse(qpsQueryParam, 10);
         // if no query string parameter `qps` is available, defaults to `QPS`
         if ( qps == null ) {
