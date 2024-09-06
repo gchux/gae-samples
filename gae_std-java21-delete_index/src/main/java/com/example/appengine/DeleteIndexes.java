@@ -79,8 +79,10 @@ public class DeleteIndexes extends HttpServlet {
       final GetResponse<Index> getIndexesResponse = search.getIndexes(getIndexesRequest);
 
       final WaitGroup wg = new WaitGroup();
+      int indexes = 0;
       for (final Index index : getIndexesResponse) {
         wg.add();
+        indexes += 1;
         System.out.println("Deleting index: " + index.getNamespace() + "::" + index.getNamespace());
         final DeleteIndex task = new DeleteIndex(wg, index, bucket);
         final ListenableFuture<Long> deletedIndex = SERVICE.submit(task);
@@ -88,7 +90,11 @@ public class DeleteIndexes extends HttpServlet {
       }
       wg.wait();
 
-      response.getWriter().println("OK: " + Long.toString(10l, 10));
+      final String outcome = Integer.toString(indexes, 10) + " | " + Long.toString(PROCESSED_DOCUMENTS.get(), 10) + " | " + Long.toString(DELETED_DOCUMENTS.get(), 10);
+
+      System.out.println("DONE: " + outcome);
+
+      response.getWriter().println(outcome);
     } catch(Exception e) {
       e.printStackTrace(System.err);
       response.getWriter().println("KO");
@@ -161,7 +167,7 @@ public class DeleteIndexes extends HttpServlet {
 
     public void onSuccess(Long deletedDocuments) {
       final long overallDeleterDocuments = DELETED_DOCUMENTS.addAndGet(deletedDocuments.longValue());
-      System.out.println("processed documents from index '" + this.index.getNamespace() + "::" + this.index.getName() + "'" + 
+      System.out.println("deleted documents from index '" + this.index.getNamespace() + "::" + this.index.getName() + "'" + 
         "@iteration:" + Long.toString(this.iteration, 10) + " => " + Long.toString(deletedDocuments.longValue(), 10) + 
         "| overall deleted documents: " + Long.toString(overallDeleterDocuments, 10));
       this.wg.done();
